@@ -3,10 +3,10 @@ package MojoMojo::Schema::Result::Comment;
 use strict;
 use warnings;
 
-use base qw/MojoMojo::Schema::Base::Result/;
+use parent qw/MojoMojo::Schema::Base::Result/;
 
-use Text::Textile2();
-my $textile = Text::Textile2->new(
+use Text::Textile;
+my $textile = Text::Textile->new(
     disable_html  => 1,
     flavor        => 'xhtml2',
     charset       => 'utf8',
@@ -14,7 +14,7 @@ my $textile = Text::Textile2->new(
 );
 
 __PACKAGE__->load_components(
-    qw/DateTime::Epoch TimeStamp PK::Auto UTF8Columns Core/);
+    qw/DateTime::Epoch TimeStamp UTF8Columns Core/);
 __PACKAGE__->table("comment");
 __PACKAGE__->add_columns(
     "id",

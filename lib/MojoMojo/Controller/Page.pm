@@ -1,7 +1,7 @@
 package MojoMojo::Controller::Page;
 
 use strict;
-use base 'Catalyst::Controller';
+use parent 'Catalyst::Controller';
 use IO::Scalar;
 use URI;
 use Text::Context;
@@ -45,8 +45,8 @@ sub view : Global {
     $stash->{template} ||= 'page/view.tt';
 
     $c->forward('inline_tags');
-# NOTE: Highlight has been turned off until someone make is work perfectly in all cases.
-# In particular is sucks with TOC and valid HTML
+# FIXME NOTE: Highlight has been turned off until someone makes it work perfectly in all cases.
+# In particular it sucks with TOC and valid HTML
 # $c->stash->{render} = 'highlight'
 #  if $c->req->referer && $c->req->referer =~ /.edit$/;
 
@@ -135,7 +135,7 @@ sub search : Global {
 
     my $results = [];
 
-# for subtree searches, add the path info to the query, replacing slashes with X
+    # for subtree searches, add the path info to the query, replacing slashes with X
     my $real_query = $q;    # this is for context matching later
     if ( $search_type eq "subtree" ) {
         my $fixed_path = $page->path;
@@ -202,9 +202,9 @@ sub search : Global {
     my $result_count = scalar @$results;
     if ($result_count) {
 
-# Paginate the results
-# This is done even with even 1 page of results so the template doesn't need to do
-# two separate things
+        # Paginate the results.
+        # This is done even with 1 page of results so the template doesn't need
+        # to do two separate things.
         my $pager = Data::Page->new;
         $pager->total_entries($result_count);
         $pager->entries_per_page($results_per_page);
@@ -279,7 +279,10 @@ sub list : Global {
     $c->stash->{tags} = $c->model("DBIC::Tag")->most_used();
     $c->detach('/tag/list') if $tag;
     $c->stash->{template} = 'page/list.tt';
-    
+
+    # Cache the list page for short period of time - override default of 300.
+    $c->cache_page($c->config->{'Plugin::PageCache'}{page_cache_short_life});
+
     if ( $c->pref('check_permission_on_view') ) {
       my $user;
       my @pages;
@@ -321,12 +324,15 @@ sub recent : Global {
     $c->stash->{template} = 'page/recent.tt';
     $c->stash->{pages}    = [ $page->descendants_by_date ];
 
+    # Cache the list page for short period of time - override default of 300.
+    $c->cache_page($c->config->{'Plugin::PageCache'}{page_cache_short_life});
+
     # FIXME - needs to be populated even without tags
 }
 
 =head2 feeds (.feeds)
 
-overview of available feeds for this node.
+Overview of available feeds for this node.
 
 =cut
 
@@ -375,7 +381,7 @@ sub rss_full : Global {
     $c->stash->{template} = 'page/rss_full.tt';
 }
 
-=head2  export (.export)
+=head2 export (.export)
 
 Page showing available export options.
 
@@ -388,7 +394,7 @@ sub export : Global {
 
 =head2 suggest (.suggest)
 
-Page not found page, suggesting alternatives, and allowing you to create the page.
+"Page not found" page, suggesting alternatives, and allowing you to create the page.
 
 =cut
 
@@ -400,7 +406,7 @@ sub suggest : Global {
 
 =head2 search_inline (.search/inline)
 
-embedded search results in another page (for use with suggest).
+Embedded search results in another page (for use with suggest).
 
 =cut
 

@@ -1,7 +1,7 @@
 package MojoMojo::Controller::Attachment;
 
 use strict;
-use base 'Catalyst::Controller';
+use parent 'Catalyst::Controller';
 
 use IO::File;
 use URI::Escape ();
@@ -101,7 +101,7 @@ sub attachment : Chained CaptureArgs(1) {
     $c->detach('default') unless ( $c->stash->{att} );
 }
 
-sub defaultaction : PathPart('') Chained('attachment') Args('') {
+sub defaultaction : PathPart('') Chained('attachment') Args(0) {
     my ( $self, $c ) = @_;
     $c->forward('view');
 }

@@ -39,15 +39,22 @@ MojoMojo->config->{authentication}{dbic} = {
     password_field => 'pass'
 };
 MojoMojo->config->{default_view}='TT';
-MojoMojo->config->{cache}{backend} = {
+MojoMojo->config->{'Plugin::Cache'}{backend} = {
     class => "Cache::FastMmap",
-};
+    unlink_on_exit => 1,
 
+};
 
 MojoMojo->config(
         'Plugin::PageCache' => {
-            expires          => 300, # only 5 minutes for now
+
+            # The expires is set in the .conf for easy edit outside of code.
+            # expires          => 300
+
+            # We don't set Cache-Control headers explicitly because
+            # firefox caches pre-login pages.
             set_http_headers => 0,
+            auto_check_user  => 1,
             auto_cache       => [
                                '/.*',
             ],
@@ -121,11 +128,15 @@ include/exclude list accessor
 my $ie;
 $ie = Algorithm::IncludeExclude->new;
 $ie->include(); 
-$ie->exclude(qr/static/);
+# static files will be handled via web server or proxy cache control.
+$ie->exclude(qr{static});
+$ie->exclude(qr{attachment});
+$ie->exclude(qr{export});
 $ie->exclude('login');
 $ie->exclude('logout');
 $ie->exclude('edit');
-#$ie->exclude('list');
+# Short cache time set in controller action for list and view
+#$ie->exclude('list'); 
 #$ie->exclude('recent');
 
 sub cache_ie_list {
@@ -149,7 +160,6 @@ sub cache_hook {
   }
   return 1;   # Cache
 }
-
 
 # Proxy method for the L<MojoMojo::Formatter::Wiki> expand_wikilink method.
 
@@ -206,8 +216,17 @@ sub pref_cached {
     if ( defined $c->cache->get($setting) and not defined $value ) {
         return $c->cache->get($setting);
     }
+    # Check that we have a database, i.e. script/mojomojo_spawn_db.pl was run.
+    my $row;
+    eval { $row = $c->model('DBIC::Preference')->find_or_create( { prefkey => $setting } ); };
+    if ( $@ ) { 
+        my $no_db_message = "ERROR: You don't seem to have a database initialized.
+Initialize one with script/mojomojo_spawn_db.pl\n"; 
+        $c->response->body($no_db_message);
+        warn $no_db_message;
+        $c->detach();
+    }
 
-    my $row = $c->model('DBIC::Preference')->find_or_create( { prefkey => $setting } );
 
     # Update database
     $row->update( { prefvalue => $value } ) if defined $value;

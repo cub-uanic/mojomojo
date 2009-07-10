@@ -4,9 +4,9 @@ use strict;
 use warnings;
 use Carp qw/croak/;
 
-use base qw/MojoMojo::Schema::Base::Result/;
+use parent qw/MojoMojo::Schema::Base::Result/;
 
-__PACKAGE__->load_components( "PK::Auto", "UTF8Columns", "Core");
+__PACKAGE__->load_components( "UTF8Columns", "Core");
 __PACKAGE__->table("page");
 __PACKAGE__->add_columns(
     "id",
@@ -277,7 +277,7 @@ sub path {
 
 =item has_photos
 
-return the number of photos attached to this page. use for galleries.
+Return the number of photos attached to this page. Use for galleries.
 
 =cut
 
