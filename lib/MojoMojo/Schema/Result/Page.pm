@@ -53,32 +53,134 @@ MojoMojo::Schema::Result::Page
 
 =cut
 
-sub tagged_descendants_by_date {
-    my ( $self, $tag ) = @_;
-    my (@pages) = $self->result_source->resultset->search(
-        {
-            'ancestor.id' => $self->id,
-            'tag'         => $tag,
-            -or           => [
-                'me.id' => \'=ancestor.id',
-                -and    => [ 'me.lft', \'> ancestor.lft', 'me.rgt', \'< ancestor.rgt', ],
-            ],
-            'me.id'           => \'=tag.page',
-            'content.page'    => \'=me.id',
-            'content.version' => \'=me.content_version',
-        },
-        {
-            group_by => [ ('me.id') ],
-            from     => "page as me, page as ancestor, tag, content",
-            order_by => 'content.created DESC',
-        }
+=head2 update_content <%args>
+
+Create a new content version for this page.
+
+%args is each column of L<MojoMojo::Schema::Result::Content>.
+
+=cut
+
+# update_content: this whole method may need work to deal with workflow.
+# maybe it can't even be called if the site uses workflow...
+# may need fixing for better conflict handling, too. maybe use a transaction?
+
+sub update_content {
+    my ( $self, %args ) = @_;
+
+    my $content_version = (
+          $self->content
+        ? $self->content->max_version()
+        : undef
     );
-    return $self->result_source->resultset->set_paths(@pages);
+    my %content_data =
+        map { $_ => $args{$_} } $self->result_source->related_source('content')->columns;
+    my $now = DateTime->now;
+    @content_data{qw/page version status release_date/} =
+        ( $self->id, ( $content_version ? $content_version + 1 : 1 ), 'released', $now, );
+    my $content =
+        $self->result_source->related_source('content')->resultset->create( \%content_data );
+    $self->content_version( $content->version );
+    $self->update;
+    
+    $self->page_version->content_version_first($content_version)
+        unless defined $self->page_version->content_version_first;
+    $self->page_version->content_version_last($content_version);
+    $self->page_version->update;
+
+    if ( my $previous_content = $content->previous ) {
+        $previous_content->remove_date($now);
+        $previous_content->status('removed');
+        $previous_content->comments("Replaced by version $content_version.");
+        $previous_content->update;
+    }
+    else {
+        $self->result_source->resultset->set_paths($self);
+    }
+    foreach my $want_me ($self->result_source->schema->resultset('WantedPage')
+                              ->search( { to_path => $self->path } ) ) {
+        my $wantme_page = $want_me->from_page;
+
+        # convert the wanted into links
+        $self->result_source->schema->resultset('Link')->create({
+            from_page => $wantme_page,
+            to_page   => $self,
+        });
+
+        # clear the precompiled (will be recompiled on view)
+        if ( my $wantme_content = $wantme_page->content ) {
+            $wantme_content->precompiled(undef);
+            $wantme_content->update;
+        }
+
+        # ok, she don't want me anymore ;)
+        $want_me->delete();
+    }
+
+}    # end sub update_content
+
+=head2 add_version
+
+    my $page_version_new = $page->add_version(
+        creator => $user_id,
+        name_orig => $page_new_name,
+    );
+
+Arguments: %replacementdata
+
+Returns: The new L<PageVersion|MojoMojo::Schema::Result::PageVersion>
+object.
+    
+Creates a new page version by cloning the latest version (hence pointing
+to the same content), and replacing its values with data in the replacement
+hash.
+
+Used for renaming pages.
+
+=cut
+
+sub add_version {
+    my ( $self, %args ) = @_;
+    my $now = DateTime->now;
+
+    my $page_version_last = $self->page_version->latest_version();
+    
+    # clone the last version and update fields passed in %args
+    my %page_version_data = map {
+        exists $args{$_}
+      ? ( $_ => $args{$_} )
+      : ( $_ => $page_version_last->$_ )
+    } $self->result_source->related_source('page_version')->columns;
+    
+    delete $args{creator};  # creator is a field in page_version, not in page
+
+    # for the new version, set the version number, status, and release date
+    @page_version_data{qw/
+          version                           status     release_date/} =
+        ( $page_version_last->version + 1, 'released', $now );
+
+    my $page_version_new;
+    # commit the new version to the database and update the previously last version to indicate its removal
+    $self->result_source->schema->txn_do(sub {
+    
+        $page_version_new = 
+            $self->result_source->related_source('page_version')->resultset->create( \%page_version_data );
+        
+        $page_version_last->update({
+            remove_date => $now,
+            status => 'removed',
+            comments => 'Replaced by version ' . $page_version_data{version}
+        });
+        
+        $self->update(\%args);
+    });
+    
+    return $page_version_new;
 }
 
 =head2 tagged_descendants($tag)
 
-Return descendants with the given tag.
+Return descendants with the given tag, ordered by name.
 
 =cut
 
@@ -106,51 +208,76 @@ sub tagged_descendants {
     return $self->result_source->resultset->set_paths(@pages);
 }
 
-# update_content: this whole method may need work to deal with workflow.
-# maybe it can't even be called if the site uses workflow...
-# may need fixing for better conflict handling, too. maybe use a transaction?
+=head2 tagged_descendants_by_date
 
-=head2 update_content <%args>
-
-Create a new content version for this page.
-
-%args is each column of L<MojoMojo::M::Core::Content>.
+Return descendants with the given tag, ordered by creation time, most
+recent first.
 
 =cut
 
-sub update_content {
-    my ( $self, %args ) = @_;
-
-    my $content_version = (
-          $self->content
-        ? $self->content->max_version()
-        : undef
+sub tagged_descendants_by_date {
+    my ( $self, $tag ) = @_;
+    my (@pages) = $self->result_source->resultset->search(
+        {
+            'ancestor.id' => $self->id,
+            'tag'         => $tag,
+            -or           => [
+                'me.id' => \'=ancestor.id',
+                -and    => [ 'me.lft', \'> ancestor.lft', 'me.rgt', \'< ancestor.rgt', ],
+            ],
+            'me.id'           => \'=tag.page',
+            'content.page'    => \'=me.id',
+            'content.version' => \'=me.content_version',
+        },
+        {
+            group_by => [ ('me.id') ],
+            from     => "page as me, page as ancestor, tag, content",
+            order_by => 'content.created DESC',
+        }
     );
-    my %content_data =
-        map { $_ => $args{$_} } $self->result_source->related_source('content')->columns;
-    my $now = DateTime->now;
-    @content_data{qw/page version status release_date/} =
-        ( $self->id, ( $content_version ? $content_version + 1 : 1 ), 'released', $now, );
-    my $content =
-        $self->result_source->related_source('content')->resultset->create( \%content_data );
-    $self->content_version( $content->version );
-    $self->update;
-    $self->page_version->content_version_first($content_version)
-        unless defined $self->page_version->content_version_first;
-    $self->page_version->content_version_last($content_version);
-    $self->page_version->update;
+    return $self->result_source->resultset->set_paths(@pages);
+}
 
-    if ( my $previous_content = $content->previous ) {
-        $previous_content->remove_date($now);
-        $previous_content->status('removed');
-        $previous_content->comments("Replaced by version $content_version.");
-        $previous_content->update;
-    }
-    else {
-        $self->result_source->resultset->set_paths($self);
-    }
 
-}    # end sub update_content
+
+=head2 descendants
+
+  @descendants = $page->descendants( [$resultset_page] );
+
+In list context, returns all descendants of this page (no paging), including 
+the page itself. In scalar context, returns the resultset object.
+
+If the optional $resultset_page is passed, returns that page from the
+L<resultset|DBIx::Class::ResultSet>.
+
+=cut
+
+sub descendants {
+    my ($self, $resultset_page)  = @_;
+    
+    my $rs = $self->result_source->resultset->search(
+        {
+            'ancestor.id' => $self->id,
+            -or           => [
+                'ancestor.id' => \'=me.id',
+                -and          => [
+                    'me.lft' => \'> ancestor.lft',
+                    'me.rgt' => \'< ancestor.rgt',
+                ]
+            ],
+        },
+        {
+            $resultset_page? (page => $resultset_page || 1, rows => 20) : (),
+            from     => 'page me, page ancestor',
+            order_by => ['me.name']
+        }
+    );  # an empty arrayref if there are no results because we'll dereference in the 'return'
+
+    return wantarray?
+        $self->result_source->resultset->set_paths($rs->all)
+      : $rs
+}
+
 
 =head2 descendants_by_date
 
@@ -181,36 +308,6 @@ sub descendants_by_date {
             page     => 1,
             from     => 'page as me, page as ancestor, content',
             order_by => 'content.created DESC'
-        }
-    );
-    return $self->result_source->resultset->set_paths(@pages);
-}
-
-
-=head2 descendants
-
-  @descendants = $page->descendants;
-
-Returns all descendants of this page (no paging), including the page itself.
-
-=cut
-
-sub descendants {
-    my ($self)  = @_;
-    my (@pages) = $self->result_source->resultset->search(
-        {
-            'ancestor.id' => $self->id,
-            -or           => [
-                'ancestor.id' => \'=me.id',
-                -and          => [
-                    'me.lft' => \'> ancestor.lft',
-                    'me.rgt' => \'< ancestor.rgt',
-                ]
-            ],
-        },
-        {
-            from     => 'page me, page ancestor',
-            order_by => ['me.name']
         }
     );
     return $self->result_source->resultset->set_paths(@pages);

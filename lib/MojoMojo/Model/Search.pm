@@ -26,7 +26,7 @@ MojoMojo::Model::Search
 =cut
 
 my $invindexer;
-my $analyzer = KinoSearch::Analysis::PolyAnalyzer->new( language => 'en' );
+my $analyzer = KinoSearch::Analysis::PolyAnalyzer->new( language => _get_language() );
 
 sub indexer {
     my $self       = shift;
@@ -124,7 +124,35 @@ sub search {
     );
     my $query = $qp->parse($q);
     my $hits = $self->searcher->search( query => $query );
+
     return $hits;
+}
+
+=head2 delete_page <page>
+
+Removes a page from the search index.
+
+=cut
+
+sub delete_page {
+    my ( $self, $page ) = @_;
+
+    return unless $page;
+
+    my $index = $self->indexer;
+    my $path  = $page->path;
+    $path  =~ s{/}{X}g;
+
+    my $term = KinoSearch::Index::Term->new( path => $path );
+    $index->delete_docs_by_term($term);
+    $index->finish( optimize => 1 );
+}
+
+sub _get_language {
+    my %supported_lang = map { $_ => 1 } qw( en da de es fi fr it nl no pt ru sv );
+    my $default_lang   = __PACKAGE__->config->{default_lang} || MojoMojo->config->{default_lang} || 'en';
+
+    return exists $supported_lang{$default_lang} ? $default_lang : 'en'; 
 }
 
 =head1 AUTHOR

@@ -1,9 +1,10 @@
 package MojoMojo::Controller::PageAdmin;
 use warnings;
 use strict;
-use Data::Dumper;
 use parent 'Catalyst::Controller::HTML::FormFu';
-use Syntax::Highlight::Engine::Kate;
+
+eval {require Syntax::Highlight::Engine::Kate};
+my $kate_installed = !$@;
 
 =head1 NAME
 
@@ -15,7 +16,7 @@ See L<MojoMojo>
 
 =head1 DESCRIPTION
 
-methods for administration of pages.
+Methods for updating pages: edit, rollback, permissions change, rename.
 
 =head1 METHODS
 
@@ -25,10 +26,24 @@ Check that user is logged in and has rights to this page.
 
 =cut
 
+=head2 unauthorized
+
+Private action to return a 403 with an explanatory template.
+
+=cut
+
+sub unauthorized : Private {
+    my ( $self, $c, $operation ) = @_;
+    $c->stash->{template} = 'message.tt';
+    $c->stash->{message} ||= $c->loc('No permissions to x this page', $operation || $c->loc('update'));
+    $c->response->status(403) unless $c->response->status;  # 403 Forbidden
+    return 0;
+}
+
 sub auto : Private {
     my ( $self, $c ) = @_;
     $c->forward('/user/login')
-      if $c->req->params->{pass}
+        if $c->req->params->{pass}  # XXX use case?
           && !$c->stash->{user};
 
     # everyone can edit with anon mode enabled.
@@ -36,9 +51,81 @@ sub auto : Private {
     my $user = $c->stash->{user};
     return 1 if $user && $user->can_edit( $c->stash->{path} );
     return 1 if $user && !$c->pref('restricted_user');
-    $c->stash->{template} = 'message.tt';
-    $c->stash->{message}  = $c->loc('No permissions to edit this page');
-    return 0;
+    $c->detach('unauthorized', [$c->loc('edit')]);
+}
+
+=head2 delete
+
+Delete a page and it's descendants.
+
+=cut
+
+sub delete : Global FormConfig {
+    my ( $self, $c, $path ) = @_;
+
+    my $form  = $c->stash->{form};
+    my $stash = $c->stash;
+    $stash->{template} = 'page/delete.tt';
+
+    my @descendants;
+    push @descendants, {
+        name       => $_->name_orig,
+        id         => $_->id,
+        can_delete => ($_->id == 1) ? 0 : $c->check_permissions($_->path, $c->user)->{delete},
+    } for sort { $a->{path} cmp $b->{path} } $c->stash->{'page'}->descendants;
+
+    $stash->{descendants}       = \@descendants;
+    $stash->{allowed_to_delete} = ( grep {$_->{can_delete} == 0} @descendants )
+                                ? 0 : 1;
+
+    if ( $form->submitted_and_valid && $stash->{allowed_to_delete} ) {
+        my @deleted_pages;
+        my @ids_to_delete;
+        for my $page ( $c->stash->{'page'}->descendants ) {
+            push @deleted_pages, $page->name_orig;
+            push @ids_to_delete, $page->id;
+
+            # Handling Circular Constraints:
+            # Must set page version column to NULL (undef in Perl speak)
+            # to remove the page(id, version) -> page_version(page, version)
+            # constraint which then allows a page_version record to be deleted.
+            $page->update({version => undef});
+
+            # remove page from search index
+            $c->model('Search')->delete_page($page);
+        }
+
+        my @tables = (
+            { module => 'DBIC::PageVersion', column => 'page' },
+            { module => 'DBIC::Attachment', column => 'page' },
+            { module => 'DBIC::Comment', column => 'page' },
+            { module => 'DBIC::Link', column => [ qw(from_page to_page) ] },
+            { module => 'DBIC::RolePrivilege', column => 'page' },
+            { module => 'DBIC::Tag', column => 'page' },
+            { module => 'DBIC::WantedPage', column => 'from_page' },
+            { module => 'DBIC::Journal', column => 'pageid' },
+            { module => 'DBIC::Entry', column => 'journal' },
+            { module => 'DBIC::Content', column => 'page' },
+            { module => 'DBIC::Page', column => 'id' },
+        );
+
+        for my $descendant ( reverse @descendants ) {
+            for my $table ( @tables ) {
+                my $search;
+                if( ref $table->{column} ) {
+                    push @{$search}, { $_ => $descendant->{id} }
+                        for(@{$table->{column}});
+                } else {
+                    $search = { $table->{column} => $descendant->{id} }
+                }
+
+                $c->model( $table->{module} )->search( $search )->delete_all;
+            }
+        }
+
+        $stash->{'deleted_pages'} = \@deleted_pages;
+        $stash->{'template'}      = 'page/deleted.tt';
+    }
 }
 
 =head2 edit
@@ -57,7 +144,7 @@ sub edit : Global FormConfig {
     my $stash = $c->stash;
     $stash->{template} = 'page/edit.tt';
 
-    my $user = $c->user_exists ? $c->user->obj->id : 1;    # Anon edit
+    my $user_id = $c->user_exists ? $c->user->obj->id : 1;  # Anon edit
 
     my ( $path_pages, $proto_pages ) = @$stash{qw/ path_pages proto_pages /};
 
@@ -72,33 +159,34 @@ sub edit : Global FormConfig {
     # proto_pages, depending on whether or not the page already exists
     my $page = (
           @$proto_pages > 0
-        ? $proto_pages->[ @$proto_pages - 1 ]
-        : $path_pages->[ @$path_pages - 1 ]
+        ? $proto_pages->[-1]
+        : $path_pages->[-1]
     );
-
-    # this should never happen!
-    $c->detach('/default') unless $page;
     @$stash{qw/ path_pages proto_pages /} = ( $path_pages, $proto_pages );
 
     my $perms =
-      $c->check_permissions( $stash->{'path'},
-        ( $c->user_exists ? $c->user->obj : undef ) );
+      $c->check_permissions( $stash->{'path'},  $c->user_exists ? $c->user->obj : undef );
     my $permtocheck = ( @$proto_pages > 0 ? 'create' : 'edit' );
-    my $loc_permtocheck=$permtocheck eq 'create'?$c->loc('create'):$c->loc('edit');
+    my $loc_permtocheck = $permtocheck eq 'create'
+      ? $c->loc('create')
+      : $c->loc('edit');
+
+    # TODO this should be caught in the auto action. To reproduce, disable "Edit allowed by default"
+    # in Site settings, then go to /.edit
     if ( !$perms->{$permtocheck} ) {
         my $name = ref($page) eq 'HASH' ? $page->{name} : $page->name;
         $stash->{message} =
-          $c->loc( 'Permission Denied to x x', [ $loc_permtocheck, $name ] );
-        $stash->{template} = 'message.tt';
-        return;
+          $c->loc( 'Permission denied to x x', [ $loc_permtocheck, $name ] );
+        $c->detach('unauthorized');
     }
-    if ( $user == 1 && !$c->pref('anonymous_user') ) {
-        $c->stash->{message} ||= $c->loc('Anonymous Edit disabled');
-        return;
+    # TODO in the use case above, the message below should be displayed. However, that never happens
+    if ( $user_id == 1 && !$c->pref('anonymous_user') ) {
+        $c->stash->{message} = $c->loc('Anonymous edit disabled');
+        $c->detach('unauthorized');
     }
 
     # for anonymous users, use CAPTCHA, if enabled
-    if ( $user == 1 && $c->pref('use_captcha') ) {
+    if ( $user_id == 1 && $c->pref('use_captcha') ) {
         my $captcha_lang = $c->session->{lang} || $c->pref('default_lang') ;
         $c->stash->{captcha} = $form->element({
             type => 'reCAPTCHA',
@@ -111,23 +199,30 @@ sub edit : Global FormConfig {
         $form->process;
     }
 
-    my $syntax = new Syntax::Highlight::Engine::Kate;
-    $c->stash->{syntax_formatters} = [ $syntax->languageList() ];
+    # prepare the list of available syntax highlighters
+    if ($kate_installed) {
+        my $syntax = new Syntax::Highlight::Engine::Kate;
+        # 'Alerts' is a hidden Kate module, so delete it from list
+        $c->stash->{syntax_formatters} = [ grep ( !/^Alerts$/ , $syntax->languageList() ) ];
+    }    
 
     if ( $form->submitted_and_valid ) {
 
-
         my $valid = $form->params;
-        $valid->{creator} = $user;
+        $valid->{creator} = $user_id;
 
         if (@$proto_pages) {    # page doesn't exist yet
 
             $path_pages = $c->model('DBIC::Page')->create_path_pages(
                 path_pages  => $path_pages,
                 proto_pages => $proto_pages,
-                creator     => $user,
+                creator     => $user_id,
             );
-            $page = $path_pages->[ @$path_pages - 1 ];
+            $page = $path_pages->[-1];
+            
+
+            # update the pages that wanted the new one
+
         }
 
         $stash->{content} = $page->content;
@@ -154,6 +249,13 @@ sub edit : Global FormConfig {
                 $c->loc('END OF CONFLICT'));
             return;
         }
+        # Format content body and store the result in content.precompiled 
+        # This speeds up MojoMojo page rendering on /.view actions
+        my $precompiled_body = $valid->{'body'};
+        MojoMojo->call_plugins( 'format_content', \$precompiled_body, $c, $page );
+
+        # Make precompiled empty when we have any of: redirect, comment or include
+        $valid->{'precompiled'} = $c->stash->{precompile_off} ? '' : $precompiled_body;
 
         $page->update_content(%$valid);
 
@@ -162,17 +264,11 @@ sub edit : Global FormConfig {
         $c->model('Search')->index_page($page)
             unless $c->pref('disable_search');
         $page->content->store_links();
-        $c->model('DBIC::WantedPage')
-          ->search( { to_path => $c->stash->{path} } )->delete();
 
         # Redirect back to edits or view page mode.
         my $redirect = $c->uri_for( $c->stash->{path} );
         if ( $form->params->{submit} eq $c->localize('Save') ) {
             $redirect .= '.edit';
-            if ( $c->req->params->{split} &&
-                 $c->req->params->{'split'} eq 'vertical' ) {
-                $redirect .= '?split=vertical';
-            }
         }
         $c->res->redirect($redirect);
     }
@@ -288,7 +384,17 @@ This action will revert a page to a older revision.
 
 sub rollback : Global {
     my ( $self, $c, $page ) = @_;
+    if ($c->req->method ne 'POST') {
+        # general error - we want a POST
+        $c->res->status(400);
+        $c->detach('unauthorized', [$c->loc('rollback')]);
+    }
+
     if ( $c->req->param('rev') ) {
+        # TODO this needs to do a proper versioned rollback, via
+        # $page->add_version( content_version => $c->req->param('rev')
+        # The problem is that the page_version table doesn't have a content_version field
+        # We could cannibalize the parent_version field, which is dummily always '1'
         $c->stash->{page}->content_version( $c->req->param('rev') );
         $c->stash->{page}->update;
         undef $c->req->params->{rev};
@@ -296,6 +402,38 @@ sub rollback : Global {
     }
 }
 
+=head2 title ( .info/title )
+
+AJAX method for renaming a page. Creates a new 
+L<PageVersion|MojoMojo::Schema::Result::PageVersion> with the rename,
+so that the renaming itself could in the future be shown in the page
+history.
+
+=cut
+
+sub title : Path('/info/title') {
+    my ( $self, $c ) = @_;
+    my $page = $c->stash->{page};
+    my $user_id = $c->user_exists ? $c->user->obj->id : 1;  # Anon edit
+    
+    if ($c->req->method ne 'POST') {
+        # general error - we want a POST
+        $c->res->status(400);
+        $c->detach('unauthorized', [$c->loc('rename via non-POST method')]);
+    }
+    
+    if ( $c->req->param('update_value') ) {
+        my $page_version_new = $page->add_version(
+            creator => $user_id,
+            name_orig => $c->req->param('update_value'),
+        );
+        $c->res->body( $page_version_new->name_orig );
+    } else {
+        # User attempted to rename the page to ''. Deny that.
+        $c->res->body( $page->name_orig );
+    }    
+    
+}
 =head1 AUTHOR
 
 Marcus Ramberg <mramberg@cpan.org>

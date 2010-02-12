@@ -1,8 +1,10 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
+use strict;
+use warnings;
 use Test::More tests => 13;
+
 BEGIN{
     $ENV{CATALYST_CONFIG} = 't/var/mojomojo.yml';
-    $ENV{CATALYST_DEBUG}  = 0;
     use_ok('Catalyst::Test', 'MojoMojo');
     use_ok('MojoMojo::Controller::User');
     use_ok('Test::WWW::Mechanize::Catalyst', 'MojoMojo');
@@ -13,7 +15,6 @@ my $mech = Test::WWW::Mechanize::Catalyst->new;
 #----------------------------------------------------------------------------
 $mech->get('/.login?login=admin&pass=admin');
 ok !$mech->success, 'non-POST logins return 400 and the login form';
-#diag 'Response after GET login: ', $mech->response->as_string;
 ok !$mech->find_link(
     text => 'admin',
     url_regex => qr'/admin$'
@@ -23,7 +24,7 @@ ok !$mech->find_link(
 #----------------------------------------------------------------------------
 $mech->get_ok('/.users', 'got user list');
 ok $mech->find_link(
-    text => 'admin',
+    text => $ENV{USER} || 'admin',  # that's how MojoMojo::Schema sets the admin user's name
     url => '/admin.profile'
 ), 'found admin in the user list';
 ok $mech->find_link(
@@ -57,6 +58,6 @@ $mech->submit_form(
 );
 ok $mech->success, 'trying to login as admin via POST';
 ok $mech->find_link(
-    text => 'admin',
+    #text => 'admin',
     url_regex => qr'/admin$'
 ), 'can log in as admin via URL';

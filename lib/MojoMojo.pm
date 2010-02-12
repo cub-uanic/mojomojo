@@ -15,7 +15,6 @@ use Catalyst qw/
     Unicode
     I18N
     Setenv
-    PageCache
     /;
 
 use Storable;
@@ -26,13 +25,12 @@ use DBIx::Class::ResultClass::HashRefInflator;
 use Encode ();
 use URI::Escape ();
 use MojoMojo::Formatter::Wiki;
-use Algorithm::IncludeExclude;
 use Module::Pluggable::Ordered
     search_path => 'MojoMojo::Formatter',
     except      => qr/^MojoMojo::Plugin::/,
     require     => 1;
 
-our $VERSION = '0.999032';
+our $VERSION = '0.999042';
 
 MojoMojo->config->{authentication}{dbic} = {
     user_class     => 'DBIC::Person',
@@ -48,28 +46,6 @@ MojoMojo->config->{'Plugin::Cache'}{backend} = {
         'mojomojo-sharefile-'.Digest::MD5::md5_hex(MojoMojo->config->{home})
     ),
 };
-
-MojoMojo->config(
-        'Plugin::PageCache' => {
-
-            # The expires is set in the .conf for easy edit outside of code.
-            # expires          => 300
-
-            # We don't set Cache-Control headers explicitly because
-            # firefox caches pre-login pages.
-            set_http_headers => 0,
-            auto_check_user  => 1,
-            auto_cache       => [
-                               '/.*',
-            ],
-            key_maker => sub {
-                my $c = shift;
-                return $c->stash->{path} . '.' . $c->req->path;
-            },
-            debug => 0 ,
-            cache_hook => 'cache_hook'
-        }
-);
 
 __PACKAGE__->config( authentication => {
     default_realm => 'members',
@@ -95,6 +71,10 @@ __PACKAGE__->config('Controller::HTML::FormFu' => {
     localize_from_context  => 1,
 });
 
+__PACKAGE__->config( setup_components => {
+    search_extra => [ '::Extensions' ],
+});
+
 MojoMojo->setup();
 
 # Check for deployed database
@@ -111,6 +91,7 @@ eval { MojoMojo->model('DBIC')->schema->resultset('MojoMojo::Schema::Result::Per
 if ($@ ) {
     $has_DB = 0;
     warn $NO_DB_MESSAGE;
+    warn "(Error: $@)";
 }
 
 MojoMojo->model('DBIC')->schema->attachment_dir( MojoMojo->config->{attachment_dir}
@@ -132,13 +113,13 @@ MojoMojo - A Catalyst & DBIx::Class powered Wiki.
 
 =head1 SYNOPSIS
 
-  # Set up database (be sure to edit mojomojo.conf first)
+  # Set up database (see mojomojo.conf first)
 
   ./script/mojomojo_spawn_db.pl
 
   # Standalone mode
 
-  ./bin/mojomo_server.pl
+  ./script/mojomo_server.pl
 
   # In apache conf
   <Location /mojomojo>
@@ -151,9 +132,10 @@ MojoMojo - A Catalyst & DBIx::Class powered Wiki.
 Mojomojo is a sort of content management system, borrowing many concepts from
 wikis and blogs. It allows you to maintain a full tree-structure of pages,
 and to interlink them in various ways. It has full version support, so you can
-always go back to a previous version and see what's changed with an easy AJAX-
-based diff system. There are also a bunch of other features like built-in
-fulltext search, live AJAX preview of editing, and RSS feeds for every wiki page.
+always go back to a previous version and see what's changed with an easy diff
+system. There are also a bunch of other features like live AJAX preview while
+editing, page tags, built-in fulltext search, image galleries, and RSS feeds
+for every wiki page.
 
 To find out more about how you can use MojoMojo, please visit
 http://mojomojo.org or read the installation instructions in
@@ -161,49 +143,6 @@ L<MojoMojo::Installation> to try it out yourself.
 
 
 =cut
-
-=head2 cache_ie_list
-
-Include/exclude list accessor
-
-=cut
-
-# include/exclude pages list to cache
-my $ie;
-$ie = Algorithm::IncludeExclude->new;
-$ie->include();
-# static files will be handled via web server or proxy cache control.
-$ie->exclude(qr{static});
-$ie->exclude(qr{attachment});
-$ie->exclude(qr{export});
-$ie->exclude('login');
-$ie->exclude('logout');
-$ie->exclude('edit');
-# Short cache time set in controller action for list and view
-#$ie->exclude('list');
-#$ie->exclude('recent');
-
-sub cache_ie_list {
-    return $ie;
-}
-
-=head2 cache_hook
-
-Dont cache if CATALYST_NOCACHE is set or if the path is excluded from,
-based on the value C<cache_ie_list>.
-
-=cut
-sub cache_hook {
-  my ( $c ) = @_;
-
-  if ( $ENV{CATALYST_NOCACHE} ||
-       $c->response->location ||
-       ! $c->cache_ie_list->evaluate($c->req->path)
-     ) {
-    return 0; # Don't cache
-  }
-  return 1;   # Cache
-}
 
 sub ajax {
     my ($c) = @_;
@@ -373,19 +312,25 @@ sub prepare_path {
     $c->req->base( URI->new($base) );
     my ( $path, $action );
     $path = $c->req->path;
-    my $index = index( $path, '.' );
 
-    if ( $index == -1 ) {
-
-        # no action found, default to view
+    if( $path =~ /^special(?:\/|$)(.*)/ ) {
         $c->stash->{path} = $path || '/';
-        $c->req->path('view');
-    }
-    else {
+        $c->req->path($1);
+    } else {
+        my $index = index( $path, '.' );
 
-        # set path in stash, and set req.path to action
-        $c->stash->{path} = '/' . substr( $path, 0, $index );
-        $c->req->path( substr( $path, $index + 1 ) );
+        if ( $index == -1 ) {
+
+            # no action found, default to view
+            $c->stash->{path} = $path || '/';
+            $c->req->path('view');
+        }
+        else {
+
+            # set path in stash, and set req.path to action
+            $c->stash->{path} = '/' . substr( $path, 0, $index );
+            $c->req->path( substr( $path, $index + 1 ) );
+        }
     }
 }
 
@@ -398,14 +343,6 @@ Return $c->req->base as an URI object.
 sub base_uri {
     my $c = shift;
     return URI->new( $c->req->base );
-}
-
-# format for unicode template use.
-
-sub unicode {
-    my ( $c, $string ) = @_;
-    utf8::decode($string);
-    return $string;
 }
 
 =head2 uri_for
@@ -436,36 +373,6 @@ sub uri_for_static {
     my ( $self, $asset ) = @_;
     return ( $self->config->{static_path} || '/.static/' ) . $asset;
 }
-
-#  Permissions are checked prior to most actions, including view if that is
-#  turned on in the configuration. The permission system works as follows.
-#  1. There is a base set of rules which may be defined in the application
-#     config, these are:
-#          $c->config->{permissions}{view_allowed} = 1; # or 0
-#     similar entries exist for delete, edit, create and attachment.
-#     if these config variables are not defined, default is to allow
-#     anyone to do anything.
-#
-#   2. Global rules that apply to everyone may be specified by creating a
-#      record with a role-id of 0.
-#
-#   3. Rules are defined using a combination of path, and role and may be
-#      applied to subpages or not.
-#
-#   4. All rules matching a given user's roles and the current path are used to
-#      determine the final yes/no on each permission. Rules are evaluated from
-#      least-specific path to most specific. This means that when checking
-#      permissions on /foo/bar/baz, permission rules set for /foo will be
-#      overridden by rules set on /foo/bar when editing /foo/bar/baz. When two
-#      rules (from different roles) are found for the same path prefix, explicit
-#      allows override denys. Null entries for a given permission are always
-#      ignored and do not effect the permissions defined at earlier level. This
-#      allows you to change certain permissions (such as create) only while not
-#      affecting previously determined permissions for the other actions. Finally -
-#      apply_to_subpages yes/no is exclusive. Meaning that a rule for /foo with
-#      apply_to_subpages set to yes will apply to /foo/bar but not to /foo alone.
-#      The endpoint in the path is always checked for a rule explicitly for that
-#      page - meaning apply_to_subpages = no.
 
 sub _cleanup_path {
     my ( $c, $path ) = @_;
@@ -505,6 +412,36 @@ sub _expand_path_elements {
     return @paths_to_check;
 }
 
+#  Permissions are checked prior to most actions, including view if that is
+#  turned on in the configuration. The permission system works as follows.
+#  1. There is a base set of rules which may be defined in the application
+#     config, these are:
+#          $c->config->{permissions}{view_allowed} = 1; # or 0
+#     similar entries exist for delete, edit, create and attachment.
+#     if these config variables are not defined, default is to allow
+#     anyone to do anything.
+#
+#   2. Global rules that apply to everyone may be specified by creating a
+#      record with a role-id of 0.
+#
+#   3. Rules are defined using a combination of path, and role and may be
+#      applied to subpages or not.
+#
+#   4. All rules matching a given user's roles and the current path are used to
+#      determine the final yes/no on each permission. Rules are evaluated from
+#      least-specific path to most specific. This means that when checking
+#      permissions on /foo/bar/baz, permission rules set for /foo will be
+#      overridden by rules set on /foo/bar when editing /foo/bar/baz. When two
+#      rules (from different roles) are found for the same path prefix, explicit
+#      allows override denys. Null entries for a given permission are always
+#      ignored and do not effect the permissions defined at earlier level. This
+#      allows you to change certain permissions (such as create) only while not
+#      affecting previously determined permissions for the other actions. Finally -
+#      apply_to_subpages yes/no is exclusive. Meaning that a rule for /foo with
+#      apply_to_subpages set to yes will apply to /foo/bar but not to /foo alone.
+#      The endpoint in the path is always checked for a rule explicitly for that
+#      page - meaning apply_to_subpages = no.
+
 sub get_permissions_data {
     my ( $c, $current_path, $paths_to_check, $role_ids ) = @_;
 
@@ -543,6 +480,11 @@ sub get_permissions_data {
     # We have two options here - if we are caching, we will load everything and cache it.
     # If we are not - then we load just the bits we need.
     if ( !$permdata ) {
+        # Initialize $permdata as a reference or we end up with an error
+        # when we try to dereference it further down.  The error we're avoiding is:
+        # Can't use string ("") as a HASH ref while "strict refs"
+        $permdata = {};
+        
         ## either the data hasn't been loaded, or it's expired since we used it last.
         ## so we need to reload it.
         my $rs =
@@ -707,13 +649,8 @@ sub check_permissions {
             }
         }
     }
-
+  
     my %perms = map { $_ => $rulescomparison{$_}{'allowed'} } keys %rulescomparison;
-
-    # Fast fix for security issue of attachments being deletable by non-authenticated users
-    # Overrides permissions for anonymous users to fix http://mojomojo.ideascale.com/akira/dtd/22284-2416
-    # TODO "attachment" is a rather vague permission: it seems to apply to creating, editing and deleting attachments
-    @perms{'attachment', 'delete'} = (0, 0) if not $user;
 
     return \%perms;
 }
@@ -784,7 +721,8 @@ Andy Grundman C<andy@hybridized.org>
 
 Jonathan Rockway C<jrockway@jrockway.us>
 
-A number of other contributors over the years.
+A number of other contributors over the years:
+https://www.ohloh.net/p/mojomojo/contributors
 
 
 =head1 COPYRIGHT

@@ -2,7 +2,7 @@ package MojoMojo::Formatter::Defang;
 use strict;
 use warnings;
 use parent qw/MojoMojo::Formatter/;
-use HTML::Declaw;
+use MojoMojo::Declaw;
 use URI;
 
 =head1 NAME
@@ -12,7 +12,7 @@ MojoMojo::Formatter::Defang - Scrub user HTML and XSS
 =head1 DESCRIPTION
 
 This formatter makes sure only a safe range of tags are
-allowed, using L<HTML::Defang>; It also tries to remove XSS attempts.
+allowed, using L<MojoMojo::Defang>; It also tries to remove XSS attempts.
 
 =head1 METHODS
 
@@ -62,11 +62,16 @@ sub defang_url_callback {
         $html_r )
       = @_;
 
-    # Explicitly allow this URL in tag attributes or stylesheets
-    return 0 if $$attr_val_r =~ /youtube.com/i;
+    # Do not allow javascript to start a URL in tag attributes or stylesheets
+    return 1 if $$attr_val_r =~ /^javascript/i;
+    # Do not allow bypassing of protocol
+    return 1 if $$attr_val_r =~ m{^//}i;
 
     # Explicitly defang this URL in tag attributes or stylesheets
     return 1 if $$attr_val_r =~ /youporn.com/i;
+    
+    # Allow URL's otherwise
+    return 0;
 }
 
 =head2 defang_css_callback
@@ -104,7 +109,7 @@ Callback for custom handling HTML tag attributes.
 
 sub defang_attribs_callback {
     my ( $c, $defang, $lc_tag, $lc_attr_key, $attr_val_r, $html_r ) = @_;
-
+    
     # if $lc_attr_key eq 'value';
     # Initial Defang effort on attributes applies specifically to 'src'
     if ( $lc_attr_key eq 'src' ) {
@@ -140,7 +145,7 @@ sub defang_attribs_callback {
         # local server whether the URI is relative or absolute..
         if ( defined $c && defined $src_uri_object->authority ) {
             if ( $c->request->uri->authority eq $src_uri_object->authority ) {
-                return 2;
+                return 0;
             }
             else {
                 return 1;
@@ -154,11 +159,14 @@ sub defang_attribs_callback {
         elsif ( defined $src_uri_object->authority ) {
             return 1;
         }
+        # Explicitly defang javascript in img src.
+        elsif ( $$attr_val_r =~ m{javascript}i ) {
+            return 1;
+        }
         else {
-            return 2;
+            return 0;
         }
     }
-
     return 0;
 }
 
@@ -171,15 +179,15 @@ context object.
 
 sub format_content {
     my ( $self, $content, $c ) = @_;
-
-    my $defang = HTML::Declaw->new(
+    
+    my $defang = MojoMojo::Declaw->new(
         context             => $c,
         fix_mismatched_tags => 1,
         tags_to_callback    => [qw/br embed object param img/],
         tags_callback       => \&defang_tags_callback,
         url_callback        => \&defang_url_callback,
         css_callback        => \&defang_css_callback,
-        attribs_to_callback => [qw(src value)],
+        attribs_to_callback => [qw(src value title)],
         attribs_callback    => \&defang_attribs_callback,
     );
 
@@ -189,7 +197,7 @@ sub format_content {
 
 =head1 SEE ALSO
 
-L<MojoMojo>, L<Module::Pluggable::Ordered>, L<HTML::Defang>
+L<MojoMojo>, L<Module::Pluggable::Ordered>, L<MojoMojo::Defang>
 
 =head1 AUTHORS
 

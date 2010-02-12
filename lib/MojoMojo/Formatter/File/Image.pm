@@ -1,13 +1,17 @@
-package MojoMojo::Formatter::File::Test;
+package MojoMojo::Formatter::File::Image;
 
-use parent qw/MojoMojo::Formatter/;
+use base qw/MojoMojo::Formatter/;
+
 
 
 =head1 NAME
 
-MojoMojo::Formatter::File::DocBook - format Docbook in xhtml
+MojoMojo::Formatter::File::Image - Image formatter
 
 =head1 DESCRIPTION
+
+
+Image is not formatted in xhtml. The controller Image is used instead.
 
 
 =head1 METHODS
@@ -16,7 +20,7 @@ MojoMojo::Formatter::File::DocBook - format Docbook in xhtml
 
 =item can_format
 
-Can format DocBook
+Can format Pod File
 
 =cut
 
@@ -24,14 +28,14 @@ sub can_format {
   my $self = shift;
   my $type = shift;
 
-  return 1 if ( $type eq "tst" );
+  return 1 if ( $type =~ /png|jpg|gif|tiff/ );
   return 0;
 }
 
 
-=item to_xhtml <dbk>
+=item to_xhtml
 
-takes Test text and renders it as XHTML.
+takes Text and renders it as XHTML.
 
 =cut
 
@@ -39,8 +43,7 @@ sub to_xhtml {
     my ( $self, $text ) = @_;
     my $result;
 
-
-    return "TESTTESTTESTTESTTEST";
+    return "Image can not be formatted in XHTML";
 }
 
 

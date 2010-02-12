@@ -7,7 +7,7 @@ use parent qw/MojoMojo::Schema::Base::Result/;
 
 =head1 NAME
 
-MojoMojo::Schema::Result::Content
+MojoMojo::Schema::Result::Content - Versioned page content
 
 =head1 DESCRIPTION
 
@@ -30,7 +30,7 @@ use DateTime::Format::Mail;
 
 use Algorithm::Diff;
 use Algorithm::Merge qw/merge/;
-use String::Diff;
+use MojoMojo::WordDiff;
 use HTML::Entities qw/encode_entities_numeric/;
 
 __PACKAGE__->load_components(
@@ -219,13 +219,7 @@ sub formatted_diff {
                   . qq(<div class="diffins">)
                   . $$line[2]
                   . "</div>"
-                : String::Diff::diff_merge(
-                    $$line[1], $$line[2],
-                    remove_open  => '<del>',
-                    remove_close => '</del>',
-                    append_open  => '<ins>',
-                    append_close => '</ins>',
-                )
+                : word_diff($$line[1], $$line[2])
             );
         }
         elsif ( $$line[0] eq "u" ) {
@@ -325,10 +319,9 @@ version.
 
 =cut
 
-use Data::Dumper;
-
 sub store_links {
     my ($self) = @_;
+
     return unless ( $self->status eq 'released' );
     my $content = $self->body;
     my $page    = $self->page;

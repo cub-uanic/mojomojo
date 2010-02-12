@@ -1,11 +1,12 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 use strict;
-use MojoMojo::Formatter::DocBook;
-
+use warnings;
 use Test::More;
 
 BEGIN { 
-    plan skip_all => 'Requirements not installed for Docbook Formatter' 
+    eval 'use MojoMojo::Formatter::DocBook';
+    plan skip_all => 'MojoMojo::Formatter::DocBook not installed' if $@;
+    plan skip_all => 'Requirements not installed for MojoMojo::Formatter::DocBook'
         unless MojoMojo::Formatter::DocBook->module_loaded;
     plan tests => 1;
 };
@@ -40,4 +41,3 @@ DBK
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>}</b></pre></div>
 HTML
 }
-

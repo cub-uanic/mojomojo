@@ -69,7 +69,7 @@ a, a:visited {
 }
 
 #content a:visited {
-    color: #4496ca;
+    color: #996699;  /* per accessibility guidelines. See http://universalusability.com/access_by_design/links/differentiate.html */
 }
 
 a:hover, #content a:hover {
@@ -344,7 +344,7 @@ a.tag:hover {
 
 .newWikiWord {
     color: #e33;
-    background lightyellow;
+    background: lightyellow;
 }
 
 .newWikiWord a {
@@ -498,12 +498,22 @@ table.recent .actions       { width: 10%; }
 }
 
 .diffdel, del {
-    background: #fcc;
+/*    background: #bbb; 
+    color: white; */
+    border: dotted thin #fbbc08;
+    color: #555;
     text-decoration: line-through;
+    padding-left: 1px;
+    padding-right: 1px;
 }
 
 .diffins, ins {
-    background: #cfc;
+    border: dotted thin #fbbc08;
+    background: yellow;
+    color: black;
+    text-decoration: none;
+    padding-left: 1px;
+    padding-right: 1px;
 }
 
 /* @end */
@@ -585,14 +595,8 @@ input.dual:focus, textarea.dual:focus {
     margin: 0.1em;
 }
 
-#title input {
-    font-size: 1em;
-}
 big {
     font-size: 1.6em;
-}
-#description textarea,small {
-    font-size: 0.9em;
 }
 
 .framedpopup {
@@ -759,6 +763,17 @@ ul#menuHome {
     color: red;
 }
 
+/* color values for errors copied from those for form elements */
+img[defang_src] {
+    border: 1px solid #ff0000;
+    background-color: #ffdddd;
+    color: #ff0000;
+}
+
+img[defang_src]:after {
+    content: "External image forbidden due to its URL. Please contact your wiki administrator.";
+}
+
 div.photo img{
     margin: 1em;
     padding: 5px;
@@ -780,10 +795,6 @@ acronym {
     border-bottom: 1px dotted !important;
 }
 
-.inplaceeditor-form input {
-    margin: 0px 10px 0px 0px;
-}
-
 a.footnote {
     vertical-align: .6em;
     font-size: 75%;
@@ -795,12 +806,8 @@ a.footnote:after {
     content: "]"
 }
 
-.inplaceeditor-form a {
-    border: 1px solid black;
-    background: #eee;
-    padding: 5px 6px 1px 6px;
-    margin: 0px 0px 0px 0px;
-    text-decoration: none;
+.inplace_field, .inplace_save, .inplace_cancel {
+    font-size: 1em;
 }
 
 #title {
@@ -1218,4 +1225,12 @@ li.tabnav {
 .message_body {
     font-size: 2em;
     line-height: 1.666em;
+}
+
+#nonexistent_pages {
+    font-size: 1.666em; 
+    background-color: lightyellow; 
+    border: 1px solid black; 
+    padding: 5px; 
+    max-width: 25em;
 }

@@ -1,11 +1,25 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 use strict;
+use warnings;
+use Test::More tests => 15;
 use MojoMojo::Formatter::Markdown;
-use Test::More tests => 12;
 use Test::Differences;
 
 my ( $content, $got, $expected, $test );
 
+#----------------------------------------------------------------------------
+$test = 'extra EOL at EOF';
+$content  = 'foo';
+$expected = "<p>foo</p>\n";
+is( MojoMojo::Formatter::Markdown->main_format_content( \$content ), $expected, $test );
+
+$test = 'consecutive EOL at EOF collapsed into one';
+$content  = "foo\n\n";
+$expected = "<p>foo</p>\n";
+is( MojoMojo::Formatter::Markdown->main_format_content( \$content ), $expected, $test );
+
+
+#----------------------------------------------------------------------------
 $content = 'Here is an ![Image alt text](/image.jpg "Image title") image.';
 $expected =
 '<p>Here is an <img src="/image.jpg" alt="Image alt text" title="Image title" /> image.</p>'
@@ -91,19 +105,30 @@ $content = <<'MARKDOWN';
 MARKDOWN
 eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
     <<'HTML', $test );
-<p><div class=this_must_be_quoted_otherwise_the_whole_div_is_not_HTML_but_junk></p>
+<div class=this_must_be_quoted_otherwise_the_whole_div_is_not_HTML_but_junk>
 
-<p></div></p>
+</div>
 HTML
 
-$TODO =
-  "All tests below will fail because Markdown doesn't interpret markdown in 
-HTML block elements, and does interpret block-level markdown in <pre> elements";
 
 #----------------------------------------------------------------------------
-$test    = "interpret block-level Markdown in divs without attributes";
+$test    = 'do not interpret block-level Markdown in divs without attributes';
 $content = <<'MARKDOWN';
 <div>
+# not a heading 1
+</div>
+MARKDOWN
+eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
+    <<'HTML', $test );
+<div>
+# not a heading 1
+</div>
+HTML
+
+
+$test    = 'do interpret block-level Markdown in divs with the markdown="1" attribute';
+$content = <<'MARKDOWN';
+<div markdown="1">
 # heading 1
 </div>
 MARKDOWN
@@ -111,14 +136,32 @@ eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
     <<'HTML', $test );
 <div>
 <h1>heading 1</h1>
+</div>
+HTML
+
+
+#----------------------------------------------------------------------------
+$test    = 'do not interpret inline Markdown in divs without attributes';
+$content = <<'MARKDOWN';
+<div>
+
+*this should be left as is*
+
+</div>
+MARKDOWN
+eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
+    <<'HTML', $test );
+<div>
+
+*this should be left as is*
 
 </div>
 HTML
 
-#----------------------------------------------------------------------------
-$test    = "interpret inline Markdown in divs without attributes";
+
+$test    = 'do interpret inline Markdown in divs with a markdown="on" attribute';
 $content = <<'MARKDOWN';
-<div>
+<div markdown="on">
 
 *this should be emphasized*
 
@@ -127,16 +170,16 @@ MARKDOWN
 eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
     <<'HTML', $test );
 <div>
-
-<em>this should be emphasized</em>
-
+<p><em>this should be emphasized</em></p>
 </div>
 HTML
 
+
+
 #----------------------------------------------------------------------------
-$test    = "interpret Markdown in divs WITH attributes";
+$test    = "interpret Markdown in divs with other attributes besides markdown='1'";
 $content = <<'MARKDOWN';
-<div class="content">
+<div class="content" markdown='1'>
 
 *this should be emphasized*
 
@@ -145,16 +188,16 @@ MARKDOWN
 eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
     <<'HTML', $test );
 <div class="content">
-
-<em>this should be emphasized</em>
-
+<p><em>this should be emphasized</em></p>
 </div>
 HTML
 
+
+
 #----------------------------------------------------------------------------
-$test    = "in <divs>, leave alone HTML like <span>s";
+$test    = 'in <divs markdown="1">, leave alone HTML like <span>s';
 $content = <<'MARKDOWN';
-<div class="photo_frame">
+<div class="photo_frame" markdown="1">
 
 ![alt text](/image.jpg "title")
 <span class="caption">Caption</span>
@@ -164,34 +207,7 @@ MARKDOWN
 eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
     <<'HTML', $test );
 <div class="photo_frame">
-
-<img src="/image.jpg" alt="alt text" title="title" /></p>
-<span class="caption">Caption</span>
-
+<p><img src="/image.jpg" alt="alt text" title="title" />
+<span class="caption">Caption</span></p>
 </div>
 HTML
-
-#----------------------------------------------------------------------------
-$test    = "in <pres>, not even block-level Markdown should be interpreted";
-$content = <<'MARKDOWN';
-<pre lang="Perl">
-# A comment, not a heading
-[this isn't](a link)
-[[this isn't a wikilink]]
-
-|| this is not | a table ||
-|| this is | a <pre> element ||
-</pre>
-MARKDOWN
-eq_or_diff( MojoMojo::Formatter::Markdown->main_format_content( \$content ),
-    <<'HTML', $test );
-<pre lang="Perl">
-# A comment, not a heading
-[this isn't](a link)
-[[this isn't a wikilink]]
-
-|| this is not | a table ||
-|| this is | a <pre> element ||
-</pre>
-HTML
-
