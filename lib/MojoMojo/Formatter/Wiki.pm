@@ -88,6 +88,12 @@ sub _generate_non_wikiword_check {
 
 my $non_wikiword_check = _generate_non_wikiword_check();
 
+=head2 strip_pre
+
+Replace <pre ... with a placeholder
+
+=cut
+
 sub strip_pre {
     my $content = shift;
     my ( @parts, $res );
@@ -114,6 +120,12 @@ sub strip_pre {
     $res .= $$content;
     return $res, @parts;
 }
+
+=head2 reinsert_pre
+
+Put pre and lang back into place.
+
+=cut
 
 sub reinsert_pre {
     my ( $content, @parts ) = @_;
@@ -210,7 +222,7 @@ we will:
 sub format_link {
 
     #FIXME: why both base and $c?
-    my ( $class, $c, $wikilink, $base, $link_text, $user_profile_wanted ) = @_;
+    my ( $class, $c, $wikilink, $base, $link_text, $action) = @_;
     $base ||= $c->req->base;
    
     # The following control structures are used to build the wikilink
@@ -306,8 +318,8 @@ sub format_link {
     if ( defined $proto_pages && @$proto_pages ) {
         my $proto_page = pop @$proto_pages;
         $url .= $proto_page->{path};
-        if ( $user_profile_wanted ) {
-            $url .= '.profile';
+        if ( $action) {
+            $url .= ".$action" ;
             return qq{<a class="existingWikiWord" href="$url">$formatted</a>};
         }
         else {
@@ -319,7 +331,7 @@ sub format_link {
     else {
         my $page = pop @$path_pages;
         $url .= $page->path;
-        $url .= '.profile' if $user_profile_wanted;
+        $url .= ".$action" if $action;
         $url .= "#$fragment" if $fragment ne '';
         return qq{<a class="existingWikiWord" href="$url">$formatted</a>};
     }

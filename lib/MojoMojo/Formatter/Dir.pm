@@ -72,12 +72,12 @@ sub format_content {
 
       my $error;
       if ( $error = $self->checkdir($dir, $c)){
-	$$content .= $error;
+        $$content .= $error;
       }
 
       if ( ! $error ){
-	# format with plugin
-	$$content .= $self->format($dir, $exclude, $c);
+        # format with plugin
+        $$content .= $self->format($dir, $exclude, $c);
       }
     }
     else{
@@ -108,11 +108,12 @@ sub format {
 }
 
 
-=item format
+=item to_xhtml
 
 Return Directory and files lists in xhtml
 
 =cut
+
 sub to_xhtml{
   my ($self, $dir, $exclude, $baseuri, $path) = @_;
 
@@ -131,6 +132,10 @@ sub to_xhtml{
       push @files, $file;
     }
   }
+
+  #-mxh Sort the array for predictable ordering in formatter_dir.t
+  @subdirs = sort @subdirs;
+  @files   = sort @files;
 
   $path =~ s/^\///;
   $path =~ s/\/$//;
@@ -191,7 +196,7 @@ sub checkdir{
   # Add '/' if not exist at the end of whitelist directories
   my @wl =  map { $_ . '/' }            # Add '/'
                   ( map{ /(\S*[^\/])/ } # Delete '/' if exist
-		    @whitelist );
+                    @whitelist );
 
   # Add '/' if not exist at the end of dierctory
   $dir =~ s|^(\S*[^/])$|$1\/|;

@@ -5,6 +5,13 @@ use parent 'MojoMojo::Formatter';
 
 eval {require URI::Fetch};
 my $dependencies_installed = !$@;
+
+=head2 module_loaded
+
+Return true if the module is loaded.
+
+=cut
+
 sub module_loaded { $dependencies_installed }
 
 our $VERSION = '0.01';
@@ -51,6 +58,11 @@ sub format_content {
 
 }
 
+=head2 process
+
+Do the meat of inserting a youtube movie into a wiki page.
+
+=cut
 
 sub process {
     my ( $class, $c, $line, $re, $lang) = @_;
@@ -74,6 +86,7 @@ sub process {
 
     if ( ($c->action->reverse eq 'pageadmin/edit') || ($c->action->reverse eq 'jsrpc/render') ){
         $line =~ s!$re!<div style='width: 425px;height: 344px; border: 1px black dotted;'>$youtube<br /><a href="$url">$url</a></div>!;
+        $c->stash->{precompile_off} = 1;
      } else {
         $line =~ s!$re!<object width="425" height="344"><param name="movie" value="http://www.youtube.com/v/$video_id&amp;hl=$lang"></param><param name="allowFullScreen" value="true"></param><param name="allowscriptaccess" value="always"></param><embed src="http://www.youtube.com/v/$video_id&amp;hl=$lang" type="application/x-shockwave-flash" allowscriptaccess="always" allowfullscreen="true" width="425" height="344"></embed></object>!;
     }

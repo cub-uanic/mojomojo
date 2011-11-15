@@ -65,7 +65,10 @@ and diffs it against the previous version.
 sub diff : Local {
     my ( $self, $c, $page, $revision, $against, $sparse ) = @_;
     unless ($revision) {
-        my $page = $c->model("DBIC::Page")->find($page);
+        my $page = $c->model("DBIC::Page")->find($page) or do {
+            $c->res->output($c->loc("Can't diff a nonexistent page"));
+            return 0;
+        };
         $revision = $page->content->id;
     }
     $revision = $c->model("DBIC::Content")->search(
@@ -117,9 +120,11 @@ sub tag : Local Args(1) {
         if (
             $tag
             && !$c->model("DBIC::Tag")->search(
-                page   => $page->id,
-                person => $c->req->{user_id},
-                tag    => $tagname
+                {
+                    page   => $page->id,
+                    person => $c->req->{user_id},
+                    tag    => $tagname,
+                }
             )->next()
             )
         {
@@ -198,7 +203,56 @@ sub set_permissions : Local {
 
     $c->forward('validate_perm_edit');
 
-    $c->set_permissions($c->stash->{path}, $c->stash->{role}, $c->req->params );
+    my @path_elements = $c->_expand_path_elements($c->stash->{path});
+    my $current_path = pop @path_elements;
+
+    my ( $create, $read, $write, $delete, $attachment, $subpages) =
+        map { $c->req->param($_) ? 'yes' : 'no' }
+            qw/create read write delete attachment subpages/;
+
+    my $role = $c->stash->{role};
+
+    my $params = {
+        path => $current_path,
+        role => $role->id,
+        apply_to_subpages   => $subpages,
+        create_allowed      => $create,
+        delete_allowed      => $delete,
+        edit_allowed        => $write,
+        view_allowed        => $read,
+        attachment_allowed  => $attachment
+    };
+
+    my $model = $c->model('DBIC::PathPermissions');
+
+    # when subpages should inherit permissions we actually need to update two
+    # entries: one for the subpages and one for the current page
+    if ($subpages eq 'yes') {
+        # update permissions for subpages
+        $model->update_or_create( $params );
+
+        # update permissions for the current page
+        $params->{apply_to_subpages} = 'no';
+        $model->update_or_create( $params );
+    }
+    # otherwise, we must remove the subpages permissions entry and update the
+    # entry for the current page
+    else {
+        # delete permissions for subpages
+        $model->search( {
+            path              => $current_path,
+            role              => $role->id,
+            apply_to_subpages => 'yes'
+        } )->delete;
+
+        # update permissions for the current page
+        $model->update_or_create($params);
+    }
+
+    # clear cache
+    if ( $c->pref('cache_permission_data') ) {
+        $c->cache->remove( 'page_permission_data' );
+    }
 
     $c->res->body("OK");
     $c->res->status(200);
@@ -215,10 +269,29 @@ sub clear_permissions : Local {
 
     $c->forward('validate_perm_edit');
 
-    $c->clear_permissions($c->stash->{path}, $c->stash->{role});
+    my @path_elements = $c->_expand_path_elements($c->stash->{path});
+    my $current_path = pop @path_elements;
+
+    my $role = $c->stash->{role};
+
+    if ($role) {
+
+        # delete permissions for subpages
+        $c->model('DBIC::PathPermissions')->search( {
+            path              => $current_path,
+            role              => $role->id
+        } )->delete;
+
+        # clear cache
+        if ( $c->pref('cache_permission_data') ) {
+            $c->cache->remove( 'page_permission_data' );
+        }
+
+    }
 
     $c->res->body("OK");
     $c->res->status(200);
+
 }
 
 =head2 validate_perm_edit

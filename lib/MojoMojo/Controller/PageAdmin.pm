@@ -54,80 +54,6 @@ sub auto : Private {
     $c->detach('unauthorized', [$c->loc('edit')]);
 }
 
-=head2 delete
-
-Delete a page and it's descendants.
-
-=cut
-
-sub delete : Global FormConfig {
-    my ( $self, $c, $path ) = @_;
-
-    my $form  = $c->stash->{form};
-    my $stash = $c->stash;
-    $stash->{template} = 'page/delete.tt';
-
-    my @descendants;
-    push @descendants, {
-        name       => $_->name_orig,
-        id         => $_->id,
-        can_delete => ($_->id == 1) ? 0 : $c->check_permissions($_->path, $c->user)->{delete},
-    } for sort { $a->{path} cmp $b->{path} } $c->stash->{'page'}->descendants;
-
-    $stash->{descendants}       = \@descendants;
-    $stash->{allowed_to_delete} = ( grep {$_->{can_delete} == 0} @descendants )
-                                ? 0 : 1;
-
-    if ( $form->submitted_and_valid && $stash->{allowed_to_delete} ) {
-        my @deleted_pages;
-        my @ids_to_delete;
-        for my $page ( $c->stash->{'page'}->descendants ) {
-            push @deleted_pages, $page->name_orig;
-            push @ids_to_delete, $page->id;
-
-            # Handling Circular Constraints:
-            # Must set page version column to NULL (undef in Perl speak)
-            # to remove the page(id, version) -> page_version(page, version)
-            # constraint which then allows a page_version record to be deleted.
-            $page->update({version => undef});
-
-            # remove page from search index
-            $c->model('Search')->delete_page($page);
-        }
-
-        my @tables = (
-            { module => 'DBIC::PageVersion', column => 'page' },
-            { module => 'DBIC::Attachment', column => 'page' },
-            { module => 'DBIC::Comment', column => 'page' },
-            { module => 'DBIC::Link', column => [ qw(from_page to_page) ] },
-            { module => 'DBIC::RolePrivilege', column => 'page' },
-            { module => 'DBIC::Tag', column => 'page' },
-            { module => 'DBIC::WantedPage', column => 'from_page' },
-            { module => 'DBIC::Journal', column => 'pageid' },
-            { module => 'DBIC::Entry', column => 'journal' },
-            { module => 'DBIC::Content', column => 'page' },
-            { module => 'DBIC::Page', column => 'id' },
-        );
-
-        for my $descendant ( reverse @descendants ) {
-            for my $table ( @tables ) {
-                my $search;
-                if( ref $table->{column} ) {
-                    push @{$search}, { $_ => $descendant->{id} }
-                        for(@{$table->{column}});
-                } else {
-                    $search = { $table->{column} => $descendant->{id} }
-                }
-
-                $c->model( $table->{module} )->search( $search )->delete_all;
-            }
-        }
-
-        $stash->{'deleted_pages'} = \@deleted_pages;
-        $stash->{'template'}      = 'page/deleted.tt';
-    }
-}
-
 =head2 edit
 
 This action will display the edit form, then save the previous
@@ -228,10 +154,24 @@ sub edit : Global FormConfig {
         $stash->{content} = $page->content;
         $c->model("DBIC::Page")->set_paths(@$path_pages);
 
-        # refetch page to have ->content available, else it will break in DBIC 0.08099_05 and later
-        #$page = $c->model("DBIC::Page")->find( $page->id );
+        # setup redirect back to edits or view page mode.
+        my $redirect = $c->uri_for( $c->stash->{path} );
+        if ( $form->params->{submit} eq $c->localize('Save') ) {
+            $redirect .= '.edit';
+        }
+        
+        # No need to update if we have no difference between browser and db.
+        if ( $c->stash->{content} && ($c->stash->{content}->body eq $form->params->{body}) ) {
+            $c->res->redirect($redirect);
+            return;
+        }
+        
+        # If we get here it means we have some difference between wiki page in browser and db.
+        # TODO: Is the discard_changes necessary?  Why are we discarding local changes?
+        #       Are there even any local changes to $page?
         $page->discard_changes;
 
+        # Check for changes made by another user to the same base revision.
         if( $c->stash->{content} &&
             $c->req->params->{version} != $c->stash->{content}->version ) {
             $c->stash->{message}=$c->loc('Someone else changed the page while you edited. Your changes has been merged. Please review and save again');
@@ -249,6 +189,7 @@ sub edit : Global FormConfig {
                 $c->loc('END OF CONFLICT'));
             return;
         }
+
         # Format content body and store the result in content.precompiled 
         # This speeds up MojoMojo page rendering on /.view actions
         my $precompiled_body = $valid->{'body'};
@@ -265,11 +206,6 @@ sub edit : Global FormConfig {
             unless $c->pref('disable_search');
         $page->content->store_links();
 
-        # Redirect back to edits or view page mode.
-        my $redirect = $c->uri_for( $c->stash->{path} );
-        if ( $form->params->{submit} eq $c->localize('Save') ) {
-            $redirect .= '.edit';
-        }
         $c->res->redirect($redirect);
     }
     else {

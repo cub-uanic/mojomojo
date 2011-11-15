@@ -14,6 +14,9 @@
     <link rel="alternate" type="application/atom+xml" title="Atom" href="[%c.uri_for('atom')%]" />
     <link rel="alternate" type="application/rss+xml" title="RSS 2.0 Headlines" href="[%c.uri_for('rss')%]" />
     <link rel="alternate" type="application/rss+xml" title="RSS 2.0 Full" href="[%c.uri_for('rss_full')%]" />
+    [% IF (c.action.reverse == 'page/view') %]
+    <link rel="canonical" href="[%c.uri_for('view') | lower %]" />
+    [% END %]
     <link rel="shortcut icon" href="[%c.uri_for_static('favicon.ico')%]" />
     <style type="text/css">
         [% my_theme_dir = (c.pref('theme') ) %]
@@ -37,7 +40,7 @@
     [% END %]
     <script type="text/javascript">
         jQuery.uri_for = function(path) { return '[%c.req.base%]' + path }
-        jQuery.uri_for_img = function(path) { return '[%c.uri_for('/.static/images',c.config.platform)%]/' + path }
+        jQuery.uri_for_static= function(path) { return '[%c.uri_for_static(c.config.platform)%]/' + path }
     </script>
 </head>
 

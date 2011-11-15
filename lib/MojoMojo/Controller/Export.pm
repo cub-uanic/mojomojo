@@ -27,6 +27,10 @@ directory will contain a timestamp showing when the archive was made.
 
 =head1 ACTIONS
 
+=head2 generate_export_filename
+
+Create the filename under which we export pages.
+
 =cut
 
 sub generate_export_filename {
@@ -51,6 +55,11 @@ for all the nodes of the wiki.
 
 sub export_raw : Global {
     my ( $self, $c ) = @_;
+    if ( !$c->user_exists() ) {
+        $c->stash->{message} = $c->loc('To export, you must be logged in.');
+        $c->detach('MojoMojo::Controller::PageAdmin', 'unauthorized');
+    }
+    
     my $prefix = generate_export_filename($c, 'markup');
 
     unless ( $c->res->{body} = $c->cache->get($prefix) ) {
@@ -81,6 +90,11 @@ versions of all the nodes of the wiki.
 
 sub export_html : Global {
     my ( $self, $c ) = @_;
+    if ( !$c->user_exists() ) {
+        $c->stash->{message} = $c->loc('To export, you must be logged in.');
+        $c->detach('MojoMojo::Controller::PageAdmin', 'unauthorized');
+    }
+    
     my $prefix = generate_export_filename($c, 'html');
 
     unless ( $c->res->{body} = $c->cache->get($prefix) ) {

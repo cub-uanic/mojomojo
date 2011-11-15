@@ -4,8 +4,11 @@ use strict;
 use parent 'Catalyst::View::TT';
 use Template::Constants qw( :debug );
 use Class::C3 ();
+use Path::Class qw/dir/;
 
-=head1 MojoMojo::V::TT - Template Toolkit views for MojoMojo
+=head1 NAME
+
+MojoMojo::V::TT - Template Toolkit views for MojoMojo
 
 =head1 SYNOPSIS
 
@@ -27,14 +30,20 @@ __PACKAGE__->config->{TEMPLATE_EXTENSION} = '.tt';
 __PACKAGE__->config->{PRE_PROCESS}        = 'global.tt';
 __PACKAGE__->config->{FILTERS}            = { nav => [ \&_nav_filter, 1 ] };
 
+=head2 new
+
+Contructor for TT View.  Can configure paths to .tt files here.
+
+=cut
+
 sub new {
     my $class  = shift;
 
     my ( $c, $arg_ref ) = @_;
 
     $class->config->{INCLUDE_PATH}=[
-        $c->path_to('root'),
-        $c->path_to('root','base'),
+        $c->config->{root},
+        dir($c->config->{root})->subdir('base'),
     ];
 
     return $class->next::method(@_);

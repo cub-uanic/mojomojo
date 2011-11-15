@@ -21,13 +21,13 @@
     [% END %]
     [% IF page.content_version && page.content_version > 1 +%]
         <li>
-            <a title="[%loc('See previous revision')%]" href="[% c.uri_for('view', {rev=> page.content_version - 1}) %]" accesskey="R">[%loc('Back in time')%]</a>
-            ([% page.content.max_version%] [% loc('revision') %][% IF page.content_version > 1 && !(lang=="pl"||lang=="ru"); "s" ; END %])
+            <a title="[%loc('See previous revision')%]" href="[% c.uri_for('view', {rev=> page.content_version - 1}) %]" accesskey="R" rel="nofollow">[%loc('Back in time')%]</a>
+            ([% page.content.max_version%] [% loc('revision') %][% IF page.content_version > 1 && !(lang=="pl"||lang=="ru"); "s" ; END %])  [%# TODO lame language-specific pluralization %]
         </li>
     [% END %]
     [% IF  (page.content_version AND page.content.max_version AND page.content_version < page.content.max_version) +%]
         <li>
-            <a title="[%loc('See next revision')%]" href="[% c.uri_for('view',{ rev=> page.content_version + 1 }) %]" accesskey="R">[%loc('Forward in time')%]</a> ([% loc('x more',page.content.max_version - page.content_version )%])
+            <a title="[%loc('See next revision')%]" href="[% c.uri_for('view',{ rev=> page.content_version + 1 }) %]" accesskey="R" rel="nofollow">[%loc('Forward in time')%]</a> ([% loc('x more',page.content.max_version - page.content_version )%])
         </li>
     [% END %]
 [% ELSE %]
@@ -60,7 +60,7 @@
         <li class="views-navbar">
             <span class="title">[% loc('Views') %]: <a title="[%loc('Format page for printing')%]" href="[%c.uri_for('print')%]">[%loc('Print')%]</a></span>
             <a title="[%loc('Subscribe to page changes')%]" href="[%c.uri_for('rss')%]">RSS</a>
-            <a title="[%loc('Inline for including content')%]" href="[%c.uri_for('inline')%]">[%loc('Inline')%]</a>
+            <a title="[%loc('Inline for including content')%]" href="[%c.uri_for('inline')%]" rel="nofollow">[%loc('Inline')%]</a>
 [% IF c.req.params.rev %]
 [% PROCESS page/rollback.tt | indent 6 %]
 [% END %]
